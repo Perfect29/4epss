@@ -12,20 +12,16 @@ forward linear motion, warm golden light, slow pace, natural camera sway, cinema
   const [progress, setProgress] = useState<number>(0);
   const [downUrl, setDownUrl] = useState<string>("");
 
-  // URL бэкенда: берём из env, иначе локалка
   const API_BASE: string =
     process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 
-  // ------ превью выбранных изображений + корректный revoke
-  const previews = useMemo(
-    () => (files.length ? files.map((f) => URL.createObjectURL(f)) : []),
-    [files]
-  );
+  // preview urls with proper revoke
+  const previews = useMemo(() => files.map((f) => URL.createObjectURL(f)), [files]);
   useEffect(() => {
     return () => previews.forEach((u) => URL.revokeObjectURL(u));
   }, [previews]);
 
-  // ------ чтобы освобождать предыдущий blob-видео
+  // keep last video url to revoke
   const lastVideoUrl = useRef<string | null>(null);
   useEffect(() => {
     return () => {
@@ -38,13 +34,7 @@ forward linear motion, warm golden light, slow pace, natural camera sway, cinema
     setFiles(Array.from(fs));
   };
 
-  const disabled = useMemo(
-    () => !files.length || (progress > 0 && progress < 100),
-    [files.length, progress]
-  );
-
   const submit = async () => {
-    const ctrl = new AbortController();
     try {
       setProgress(5);
       setDownUrl("");
@@ -56,7 +46,6 @@ forward linear motion, warm golden light, slow pace, natural camera sway, cinema
       const resp = await fetch(`${API_BASE}/api/generate`, {
         method: "POST",
         body: fd,
-        signal: ctrl.signal,
       });
 
       if (!resp.ok) {
@@ -65,7 +54,8 @@ forward linear motion, warm golden light, slow pace, natural camera sway, cinema
       }
 
       setProgress(85);
-      const blob = await resp.blob();
+      const ab = await resp.arrayBuffer();
+      const blob = new Blob([ab], { type: "video/mp4" });
 
       if (lastVideoUrl.current) URL.revokeObjectURL(lastVideoUrl.current);
       const url = URL.createObjectURL(blob);
@@ -76,71 +66,36 @@ forward linear motion, warm golden light, slow pace, natural camera sway, cinema
     } catch (e: any) {
       console.error(e);
       alert(`Generation failed: ${e?.message ?? e}`);
-      // если не дотянули до 100 — сброс прогресса
-      if (progress > 0 && progress < 100) setProgress(0);
+      setProgress(0);
     }
   };
 
+  const disabled = !files.length || (progress > 0 && progress < 100);
+
   return (
-    <div className="container" style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
-      <div
-        className="card"
-        style={{
-          padding: 20,
-          borderRadius: 16,
-          border: "1px solid #232327",
-          background: "#0f0f12",
-          color: "white",
-        }}
-      >
-        <h1 style={{ margin: 0, fontSize: 24 }}>
-          Tour I2V — генератор видео-превью для турагентств
-        </h1>
-        <p style={{ color: "#9aa0a6", marginTop: 8 }}>
+    <div className="container">
+      <div className="card">
+        <h1>Tour I2V — генератор видео-превью для турагентств</h1>
+        <p style={{ color: "var(--muted)" }}>
           Загрузи фото локаций — получишь единый ролик «как будто идёшь вперёд».
         </p>
 
         <div style={{ margin: "16px 0" }}>
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={(e) => onFiles(e.target.files)}
-          />
+          <input type="file" accept="image/*" multiple onChange={(e) => onFiles(e.target.files)} />
         </div>
 
         {!!previews.length && (
-          <div
-            className="grid"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-              gap: 12,
-              marginBottom: 12,
-            }}
-          >
+          <div className="grid">
             {previews.map((u, i) => (
-              <div
-                key={i}
-                className="thumb"
-                style={{
-                  border: "1px solid #232327",
-                  borderRadius: 12,
-                  overflow: "hidden",
-                }}
-              >
-                <img
-                  src={u}
-                  alt={`image-${i}`}
-                  style={{ width: "100%", display: "block" }}
-                />
+              <div key={i} className="thumb">
+                <img src={u} alt={`image-${i}`} style={{ width: "100%", display: "block" }} />
               </div>
             ))}
           </div>
         )}
 
         <div style={{ marginTop: 16 }}>
-          <label style={{ display: "block", marginBottom: 6 }}>Prompt</label>
+          <label>Prompt</label>
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -152,75 +107,23 @@ forward linear motion, warm golden light, slow pace, natural camera sway, cinema
               color: "white",
               border: "1px solid #232327",
               padding: 12,
-              resize: "vertical",
             }}
           />
         </div>
 
-        <div
-          className="progress"
-          style={{
-            marginTop: 12,
-            height: 6,
-            background: "#1b1b20",
-            borderRadius: 8,
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              width: `${progress}%`,
-              height: "100%",
-              background: "#6ee7b7",
-              transition: "width .25s ease",
-            }}
-          />
+        <div className="progress">
+          <div className="progress-bar" style={{ width: `${progress}%` }} />
         </div>
 
-        <button
-          className="btn"
-          disabled={disabled}
-          onClick={submit}
-          style={{
-            marginTop: 12,
-            padding: "10px 16px",
-            background: disabled ? "#2a2a2f" : "#10b981",
-            color: disabled ? "#8a8a90" : "#0b0b0e",
-            border: "none",
-            borderRadius: 12,
-            cursor: disabled ? "not-allowed" : "pointer",
-            fontWeight: 600,
-          }}
-        >
+        <button className="btn" disabled={disabled} onClick={submit}>
           {progress > 0 && progress < 100 ? "Генерируем…" : "Сгенерировать видео"}
         </button>
 
         {downUrl && (
           <div style={{ marginTop: 16 }}>
-            <video
-              src={downUrl}
-              controls
-              style={{
-                width: "100%",
-                borderRadius: 16,
-                border: "1px solid #232327",
-              }}
-            />
+            <video src={downUrl} controls style={{ width: "100%", borderRadius: 16, border: "1px solid #232327" }} />
             <div style={{ marginTop: 8 }}>
-              <a
-                className="btn"
-                href={downUrl}
-                download="tour-preview.mp4"
-                style={{
-                  display: "inline-block",
-                  padding: "10px 16px",
-                  background: "#111827",
-                  color: "white",
-                  border: "1px solid #232327",
-                  borderRadius: 12,
-                  textDecoration: "none",
-                }}
-              >
+              <a className="btn" href={downUrl} download="tour-preview.mp4">
                 Скачать MP4
               </a>
             </div>
@@ -228,17 +131,60 @@ forward linear motion, warm golden light, slow pace, natural camera sway, cinema
         )}
       </div>
 
-      <div
-        style={{
-          opacity: 0.8,
-          marginTop: 16,
-          fontSize: 12,
-          color: "#9aa0a6",
-        }}
-      >
-        <b>Важно:</b> генерация идёт на стороннем API (MiniMax), склейка делается на
-        бэкенде.
+      <div style={{ opacity: 0.8, marginTop: 16, fontSize: 12, color: "var(--muted)" }}>
+        <b>Важно:</b> генерация идёт на стороннем API (MiniMax), склейка делается на бэкенде.
       </div>
+
+      <style jsx>{`
+        .container {
+          max-width: 900px;
+          margin: 40px auto;
+          padding: 0 16px;
+        }
+        .card {
+          background: #0b0b0e;
+          border: 1px solid #232327;
+          border-radius: 16px;
+          padding: 20px;
+        }
+        .grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+          gap: 10px;
+        }
+        .thumb {
+          border: 1px solid #232327;
+          border-radius: 8px;
+          overflow: hidden;
+        }
+        .btn {
+          margin-top: 12px;
+          padding: 10px 14px;
+          background: #1d7cf2;
+          color: white;
+          border: none;
+          border-radius: 10px;
+          cursor: pointer;
+        }
+        .btn[disabled] {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        .progress {
+          margin: 16px 0;
+          width: 100%;
+          height: 6px;
+          background: #1a1a1f;
+          border: 1px solid #232327;
+          border-radius: 999px;
+          overflow: hidden;
+        }
+        .progress-bar {
+          height: 100%;
+          background: #1d7cf2;
+          transition: width 0.2s ease;
+        }
+      `}</style>
     </div>
   );
 }

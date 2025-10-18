@@ -5,3 +5,5 @@ python-multipart==0.0.9
 pydantic==2.9.2
 moviepy==1.0.3
 ffmpeg-python==0.2.0
+python-dotenv
+
