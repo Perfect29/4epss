@@ -12,7 +12,7 @@ from starlette.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from PIL import Image
 import httpx
-from moviepy import VideoFileClip, concatenate_videoclips
+from moviepy.editor import VideoFileClip, concatenate_videoclips
 
 # ── ENV ────────────────────────────────────────────────────────────────────────
 HERE = os.path.dirname(__file__)
