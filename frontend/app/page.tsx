@@ -1,190 +1,112 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 
 export default function Page() {
   const [files, setFiles] = useState<File[]>([]);
-  const [prompt, setPrompt] = useState<string>(
-    `Realistic continuation of the reference image as a forward walking video. The camera moves steadily ahead, maintaining natural height (~1.7m). The environment gradually changes in perspective and depth, with warm golden-hour lighting and soft shadows. Few people visible, peaceful ambiance. Real physical motion only — no zooms or cinematic dolly effects. Feels like walking calmly toward the scene.
-Style notes:
-forward linear motion, warm golden light, slow pace, natural camera sway, cinematic realism.`
-  );
-  const [progress, setProgress] = useState<number>(0);
-  const [downUrl, setDownUrl] = useState<string>("");
+  const [progress, setProgress] = useState(0);
+  const [err, setErr] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
 
-  const API_BASE: string =
-    process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 
-  // preview urls with proper revoke
-  const previews = useMemo(() => files.map((f) => URL.createObjectURL(f)), [files]);
-  useEffect(() => {
-    return () => previews.forEach((u) => URL.revokeObjectURL(u));
-  }, [previews]);
+  const previews = useMemo(() => files.map(f => URL.createObjectURL(f)), [files]);
+  React.useEffect(() => () => previews.forEach(u => URL.revokeObjectURL(u)), [previews]);
 
-  // keep last video url to revoke
-  const lastVideoUrl = useRef<string | null>(null);
-  useEffect(() => {
-    return () => {
-      if (lastVideoUrl.current) URL.revokeObjectURL(lastVideoUrl.current);
-    };
-  }, []);
+  const lastVideo = useRef<string | null>(null);
 
-  const onFiles = (fs: FileList | null) => {
-    if (!fs) return;
-    setFiles(Array.from(fs));
+  const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const fs = Array.from(e.target.files).slice(0, 2); // максимум 2
+    setFiles(fs);
+    setErr("");
+    setVideoUrl("");
   };
 
   const submit = async () => {
     try {
-      setProgress(5);
-      setDownUrl("");
+      setErr("");
+      if (!files.length) throw new Error("Добавьте хотя бы 1 фото (максимум 2).");
+      setProgress(10);
 
       const fd = new FormData();
-      files.forEach((f) => fd.append("files", f));
-      fd.append("prompt", prompt);
+      files.forEach(f => fd.append("files", f));
+      // модель фикс — можно не слать; оставлю явным:
+      fd.append("model", "kling-v2-5-turbo");
 
-      const resp = await fetch(`${API_BASE}/api/generate`, {
-        method: "POST",
-        body: fd,
-      });
-
-      if (!resp.ok) {
-        const text = await resp.text().catch(() => "");
-        throw new Error(text || `HTTP ${resp.status}`);
-      }
+      const resp = await fetch(`${API_BASE}/api/generate`, { method: "POST", body: fd });
+      if (!resp.ok) throw new Error(await resp.text());
 
       setProgress(85);
       const ab = await resp.arrayBuffer();
       const blob = new Blob([ab], { type: "video/mp4" });
-
-      if (lastVideoUrl.current) URL.revokeObjectURL(lastVideoUrl.current);
+      if (lastVideo.current) URL.revokeObjectURL(lastVideo.current);
       const url = URL.createObjectURL(blob);
-      lastVideoUrl.current = url;
-
-      setDownUrl(url);
+      lastVideo.current = url;
+      setVideoUrl(url);
       setProgress(100);
     } catch (e: any) {
-      console.error(e);
-      alert(`Generation failed: ${e?.message ?? e}`);
+      setErr(e?.message ?? String(e));
       setProgress(0);
     }
   };
 
-  const disabled = !files.length || (progress > 0 && progress < 100);
+  const disabled = (!files.length || files.length > 2) || (progress > 0 && progress < 100);
 
   return (
-    <div className="container">
-      <div className="card">
-        <h1>Tour I2V — генератор видео-превью для турагентств</h1>
-        <p style={{ color: "var(--muted)" }}>
-          Загрузи фото локаций — получишь единый ролик «как будто идёшь вперёд».
-        </p>
+    <div style={wrap}>
+      <div style={card}>
+        <h1 style={h1}>Kling 2.5 — 1–2 фото → единое видео</h1>
+        <p style={{ opacity: 0.75, marginTop: 4 }}>Загрузи до двух картинок. Каждая конвертируется в 5-сек. ролик и склеивается.</p>
 
-        <div style={{ margin: "16px 0" }}>
-          <input type="file" accept="image/*" multiple onChange={(e) => onFiles(e.target.files)} />
+        <div style={drop}>
+          <input id="pick" type="file" multiple accept="image/*" onChange={onPick} style={{ display: "none" }} />
+          <label htmlFor="pick" style={{ cursor: "pointer" }}>
+            <b>Выбрать до 2 файлов</b>
+          </label>
         </div>
 
         {!!previews.length && (
-          <div className="grid">
+          <div style={thumbs}>
             {previews.map((u, i) => (
-              <div key={i} className="thumb">
-                <img src={u} alt={`image-${i}`} style={{ width: "100%", display: "block" }} />
-              </div>
+              <img key={i} src={u} style={thumb} alt={`p-${i}`} />
             ))}
           </div>
         )}
 
-        <div style={{ marginTop: 16 }}>
-          <label>Prompt</label>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            rows={6}
-            style={{
-              width: "100%",
-              borderRadius: 12,
-              background: "#0f0f12",
-              color: "white",
-              border: "1px solid #232327",
-              padding: 12,
-            }}
-          />
+        <div style={{ marginTop: 16, display: "flex", gap: 12, alignItems: "center" }}>
+          <button onClick={submit} disabled={disabled} style={btn}>
+            {progress > 0 && progress < 100 ? "Генерируем…" : "Сгенерировать"}
+          </button>
+          {progress > 0 && (
+            <div style={barWrap}><div style={{ ...bar, width: `${progress}%` }} /></div>
+          )}
         </div>
 
-        <div className="progress">
-          <div className="progress-bar" style={{ width: `${progress}%` }} />
-        </div>
+        {!!err && <div style={errBox}>{err}</div>}
 
-        <button className="btn" disabled={disabled} onClick={submit}>
-          {progress > 0 && progress < 100 ? "Генерируем…" : "Сгенерировать видео"}
-        </button>
-
-        {downUrl && (
+        {!!videoUrl && (
           <div style={{ marginTop: 16 }}>
-            <video src={downUrl} controls style={{ width: "100%", borderRadius: 16, border: "1px solid #232327" }} />
-            <div style={{ marginTop: 8 }}>
-              <a className="btn" href={downUrl} download="tour-preview.mp4">
-                Скачать MP4
-              </a>
-            </div>
+            <video src={videoUrl} controls style={video} />
+            <a href={videoUrl} download="tour-preview.mp4" style={{ ...btn, display: "inline-block", marginTop: 8 }}>
+              Скачать MP4
+            </a>
           </div>
         )}
       </div>
-
-      <div style={{ opacity: 0.8, marginTop: 16, fontSize: 12, color: "var(--muted)" }}>
-        <b>Важно:</b> генерация идёт на стороннем API (MiniMax), склейка делается на бэкенде.
-      </div>
-
-      <style jsx>{`
-        .container {
-          max-width: 900px;
-          margin: 40px auto;
-          padding: 0 16px;
-        }
-        .card {
-          background: #0b0b0e;
-          border: 1px solid #232327;
-          border-radius: 16px;
-          padding: 20px;
-        }
-        .grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-          gap: 10px;
-        }
-        .thumb {
-          border: 1px solid #232327;
-          border-radius: 8px;
-          overflow: hidden;
-        }
-        .btn {
-          margin-top: 12px;
-          padding: 10px 14px;
-          background: #1d7cf2;
-          color: white;
-          border: none;
-          border-radius: 10px;
-          cursor: pointer;
-        }
-        .btn[disabled] {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-        .progress {
-          margin: 16px 0;
-          width: 100%;
-          height: 6px;
-          background: #1a1a1f;
-          border: 1px solid #232327;
-          border-radius: 999px;
-          overflow: hidden;
-        }
-        .progress-bar {
-          height: 100%;
-          background: #1d7cf2;
-          transition: width 0.2s ease;
-        }
-      `}</style>
     </div>
   );
 }
+
+/* стили */
+const wrap: React.CSSProperties = { minHeight: "100vh", background: "#0b0d14", color: "white", padding: 24 };
+const card: React.CSSProperties = { maxWidth: 1100, margin: "0 auto", background: "#0e1324", border: "1px solid #1f2a44", borderRadius: 16, padding: 20 };
+const h1: React.CSSProperties = { margin: 0, fontSize: 28 };
+const drop: React.CSSProperties = { marginTop: 14, padding: 16, border: "1px dashed #2b3245", background: "#0f1423", borderRadius: 10, textAlign: "center" };
+const thumbs: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 };
+const thumb: React.CSSProperties = { width: "100%", borderRadius: 12, border: "1px solid #232b3d" };
+const btn: React.CSSProperties = { padding: "10px 16px", background: "#1d7cf2", color: "white", border: "none", borderRadius: 10, cursor: "pointer" };
+const barWrap: React.CSSProperties = { flex: 1, height: 8, background: "#10182a", border: "1px solid #1f2a44", borderRadius: 999, overflow: "hidden" };
+const bar: React.CSSProperties = { height: "100%", background: "#1d7cf2", transition: "width 0.3s" };
+const errBox: React.CSSProperties = { marginTop: 12, padding: 10, background: "#3a0e12", border: "1px solid #702028", borderRadius: 10, color: "#ffb3b6", whiteSpace: "pre-wrap" };
+const video: React.CSSProperties = { width: "100%", borderRadius: 12, border: "1px solid #1f2a44" };

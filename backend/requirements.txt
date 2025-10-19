@@ -6,4 +6,9 @@ pydantic==2.9.2
 moviepy==1.0.3
 ffmpeg-python==0.2.0
 python-dotenv
+boto3
+botocore
+types-boto3 ; python_version >= "3.8"
+starlette
+Pillow
 
